@@ -1,6 +1,9 @@
 package com.example.codeprogress.common.exception;
 
 import com.example.codeprogress.topic.exception.TopicNotFoundException;
+import com.example.codeprogress.learningtask.exception.LearningTaskNotFoundException;
+import com.example.codeprogress.studysession.exception.LearningTaskDoesNotBelongToTopicException;
+import com.example.codeprogress.studysession.exception.StudySessionNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +27,45 @@ public class GlobalExceptionHandler {
     ) {
         return buildResponse(
                 HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                request.getRequestURI(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(LearningTaskNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleLearningTaskNotFound(
+            LearningTaskNotFoundException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                request.getRequestURI(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(StudySessionNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleStudySessionNotFound(
+            StudySessionNotFoundException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                request.getRequestURI(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(LearningTaskDoesNotBelongToTopicException.class)
+    public ResponseEntity<ApiErrorResponse> handleTaskFromAnotherTopic(
+            LearningTaskDoesNotBelongToTopicException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(
+                HttpStatus.BAD_REQUEST,
                 exception.getMessage(),
                 request.getRequestURI(),
                 List.of()
