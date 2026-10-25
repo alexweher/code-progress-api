@@ -38,4 +38,4 @@ jobs:
         run: docker compose --env-file .env.example config --quiet
 
       - name: Build and verify
-        run: mvn --batch-mode --no-transfer-progress verify
+        run: mvn --batch-mode --no-transfer-progress clean verify
