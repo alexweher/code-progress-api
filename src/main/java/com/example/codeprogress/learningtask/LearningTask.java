@@ -15,6 +15,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
@@ -44,6 +45,20 @@ public class LearningTask {
     @Column(nullable = false, length = 20)
     private LearningTaskStatus status;
 
+    @Column
+    private LocalDate deadline;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private LearningTaskPriority priority;
+
+    @Column(name = "status_managed_by_study_session", nullable = false)
+    private boolean statusManagedByStudySession;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status_before_study_session_completion", length = 20)
+    private LearningTaskStatus statusBeforeStudySessionCompletion;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -54,11 +69,25 @@ public class LearningTask {
     }
 
     public LearningTask(Topic topic, String title, String description, LearningTaskDifficulty difficulty) {
+        this(topic, title, description, difficulty, null, LearningTaskPriority.MEDIUM);
+    }
+
+    public LearningTask(
+            Topic topic,
+            String title,
+            String description,
+            LearningTaskDifficulty difficulty,
+            LocalDate deadline,
+            LearningTaskPriority priority
+    ) {
         this.topic = Objects.requireNonNull(topic, "topic must not be null");
         this.title = Objects.requireNonNull(title, "title must not be null");
         this.description = description;
         this.difficulty = Objects.requireNonNull(difficulty, "difficulty must not be null");
         this.status = LearningTaskStatus.PLANNED;
+        this.deadline = deadline;
+        this.priority = Objects.requireNonNull(priority, "priority must not be null");
+        this.statusManagedByStudySession = false;
 
         LocalDateTime now = LocalDateTime.now();
         this.createdAt = now;
@@ -74,7 +103,38 @@ public class LearningTask {
 
     public void updateStatus(LearningTaskStatus status) {
         this.status = Objects.requireNonNull(status, "status must not be null");
+        this.statusManagedByStudySession = false;
+        this.statusBeforeStudySessionCompletion = null;
         this.updatedAt = LocalDateTime.now();
+    }
+
+    public void updatePlanning(LocalDate deadline, LearningTaskPriority priority) {
+        this.deadline = deadline;
+        this.priority = Objects.requireNonNull(priority, "priority must not be null");
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void completeFromStudySession() {
+        if (status != LearningTaskStatus.COMPLETED) {
+            statusBeforeStudySessionCompletion = status;
+            status = LearningTaskStatus.COMPLETED;
+            statusManagedByStudySession = true;
+            updatedAt = LocalDateTime.now();
+        }
+    }
+
+    public void restoreStatusBeforeStudySessionCompletion() {
+        if (!statusManagedByStudySession) {
+            return;
+        }
+
+        status = Objects.requireNonNull(
+                statusBeforeStudySessionCompletion,
+                "statusBeforeStudySessionCompletion must not be null when status is managed by a study session"
+        );
+        statusManagedByStudySession = false;
+        statusBeforeStudySessionCompletion = null;
+        updatedAt = LocalDateTime.now();
     }
 
     @PrePersist
@@ -82,6 +142,9 @@ public class LearningTask {
         LocalDateTime now = LocalDateTime.now();
         if (status == null) {
             status = LearningTaskStatus.PLANNED;
+        }
+        if (priority == null) {
+            priority = LearningTaskPriority.MEDIUM;
         }
         if (createdAt == null) {
             createdAt = now;
@@ -102,6 +165,9 @@ public class LearningTask {
     public String getDescription() { return description; }
     public LearningTaskDifficulty getDifficulty() { return difficulty; }
     public LearningTaskStatus getStatus() { return status; }
+    public LocalDate getDeadline() { return deadline; }
+    public LearningTaskPriority getPriority() { return priority; }
+    public boolean isStatusManagedByStudySession() { return statusManagedByStudySession; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 }

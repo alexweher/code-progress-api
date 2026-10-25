@@ -2,10 +2,13 @@ package com.example.codeprogress.learningtask.controller;
 
 import com.example.codeprogress.common.exception.GlobalExceptionHandler;
 import com.example.codeprogress.learningtask.LearningTaskDifficulty;
+import com.example.codeprogress.learningtask.LearningTaskPriority;
 import com.example.codeprogress.learningtask.LearningTaskStatus;
 import com.example.codeprogress.learningtask.dto.CreateLearningTaskRequest;
 import com.example.codeprogress.learningtask.dto.LearningTaskResponse;
 import com.example.codeprogress.learningtask.dto.UpdateLearningTaskRequest;
+import com.example.codeprogress.learningtask.dto.UpdateLearningTaskPlanningRequest;
+import com.example.codeprogress.learningtask.exception.LearningTaskDeletionConflictException;
 import com.example.codeprogress.learningtask.exception.LearningTaskNotFoundException;
 import com.example.codeprogress.learningtask.service.LearningTaskService;
 import com.example.codeprogress.topic.exception.TopicNotFoundException;
@@ -13,11 +16,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -35,6 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(LearningTaskController.class)
+@AutoConfigureMockMvc(addFilters = false)
 @Import(GlobalExceptionHandler.class)
 class LearningTaskControllerTest {
 
@@ -97,6 +105,57 @@ class LearningTaskControllerTest {
     }
 
     @Test
+    void returnsFilteredTaskPage() throws Exception {
+        when(learningTaskService.search(any(), any(), any(), any(), any(), any(), any())).thenReturn(
+                new PageImpl<>(List.of(taskResponse()), PageRequest.of(0, 10), 1)
+        );
+
+        mockMvc.perform(get("/api/tasks/search")
+                        .param("topicId", "1")
+                        .param("status", "PLANNED")
+                        .param("difficulty", "MEDIUM")
+                        .param("priority", "HIGH")
+                        .param("deadlineFrom", "2026-10-20")
+                        .param("deadlineTo", "2026-10-27")
+                        .param("size", "10")
+                        .param("sort", "difficulty,desc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(10))
+                .andExpect(jsonPath("$.totalElements").value(1));
+
+        verify(learningTaskService).search(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(LearningTaskStatus.PLANNED),
+                org.mockito.ArgumentMatchers.eq(LearningTaskDifficulty.MEDIUM),
+                org.mockito.ArgumentMatchers.eq(LearningTaskPriority.HIGH),
+                org.mockito.ArgumentMatchers.eq(LocalDate.of(2026, 10, 20)),
+                org.mockito.ArgumentMatchers.eq(LocalDate.of(2026, 10, 27)),
+                any()
+        );
+    }
+
+    @Test
+    void rejectsUnknownPriorityFilter() throws Exception {
+        mockMvc.perform(get("/api/tasks/search").param("priority", "URGENT"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid value for parameter 'priority'"));
+    }
+
+    @Test
+    void rejectsMalformedDeadlineFilter() throws Exception {
+        mockMvc.perform(get("/api/tasks/search").param("deadlineFrom", "20-10-2026"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid value for parameter 'deadlineFrom'"));
+    }
+
+    @Test
+    void rejectsUnknownTaskStatusFilter() throws Exception {
+        mockMvc.perform(get("/api/tasks/search").param("status", "UNKNOWN"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid value for parameter 'status'"));
+    }
+
+    @Test
     void returnsNotFoundForUnknownTopicWhenListingTasks() throws Exception {
         when(learningTaskService.getAllByTopicId(99L)).thenThrow(new TopicNotFoundException(99L));
 
@@ -141,6 +200,65 @@ class LearningTaskControllerTest {
     }
 
     @Test
+    void updatesTaskPlanning() throws Exception {
+        LearningTaskResponse response = new LearningTaskResponse(
+                10L,
+                1L,
+                "Build API",
+                "Controllers",
+                LearningTaskDifficulty.MEDIUM,
+                LearningTaskStatus.PLANNED,
+                LocalDate.of(2026, 10, 25),
+                LearningTaskPriority.HIGH,
+                taskResponse().createdAt(),
+                taskResponse().updatedAt()
+        );
+        when(learningTaskService.updatePlanning(
+                org.mockito.ArgumentMatchers.eq(10L),
+                any(UpdateLearningTaskPlanningRequest.class)
+        )).thenReturn(response);
+
+        mockMvc.perform(patch("/api/tasks/10/planning")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deadline\":\"2026-10-25\",\"priority\":\"HIGH\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deadline").value("2026-10-25"))
+                .andExpect(jsonPath("$.priority").value("HIGH"))
+                .andExpect(jsonPath("$.status").value("PLANNED"));
+    }
+
+    @Test
+    void rejectsPlanningUpdateWithoutPriority() throws Exception {
+        mockMvc.perform(patch("/api/tasks/10/planning")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deadline\":\"2026-10-25\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("priority"));
+    }
+
+    @Test
+    void returnsPlanningPages() throws Exception {
+        PageImpl<LearningTaskResponse> page = new PageImpl<>(
+                List.of(taskResponse()),
+                PageRequest.of(0, 20),
+                1
+        );
+        when(learningTaskService.getDueToday(any())).thenReturn(page);
+        when(learningTaskService.getUpcoming(any())).thenReturn(page);
+        when(learningTaskService.getOverdue(any())).thenReturn(page);
+
+        mockMvc.perform(get("/api/tasks/due-today"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
+        mockMvc.perform(get("/api/tasks/upcoming"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
+        mockMvc.perform(get("/api/tasks/overdue"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
     void rejectsInvalidStatus() throws Exception {
         mockMvc.perform(patch("/api/tasks/10/status")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -165,6 +283,17 @@ class LearningTaskControllerTest {
 
         mockMvc.perform(delete("/api/tasks/99"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void returnsConflictWhenDeletingTaskUsedInStudySessionHistory() throws Exception {
+        doThrow(new LearningTaskDeletionConflictException(10L)).when(learningTaskService).delete(10L);
+
+        mockMvc.perform(delete("/api/tasks/10"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message")
+                        .value("Learning task with id 10 cannot be deleted because it is part of study session history"));
     }
 
     private LearningTaskResponse taskResponse() {

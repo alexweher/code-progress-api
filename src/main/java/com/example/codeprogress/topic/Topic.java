@@ -1,5 +1,6 @@
 package com.example.codeprogress.topic;
 
+import com.example.codeprogress.user.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -7,6 +8,9 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -21,6 +25,10 @@ public class Topic {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "owner_user_id", nullable = false)
+    private User owner;
 
     @Column(nullable = false, length = 120)
     private String title;
@@ -41,7 +49,8 @@ public class Topic {
     protected Topic() {
     }
 
-    public Topic(String title, String description) {
+    public Topic(User owner, String title, String description) {
+        this.owner = Objects.requireNonNull(owner, "owner must not be null");
         this.title = Objects.requireNonNull(title, "title must not be null");
         this.description = description;
         this.status = TopicStatus.PLANNED;
@@ -84,6 +93,10 @@ public class Topic {
 
     public Long getId() {
         return id;
+    }
+
+    public User getOwner() {
+        return owner;
     }
 
     public String getTitle() {

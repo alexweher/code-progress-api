@@ -18,6 +18,7 @@ public record UpdateStudySessionRequest(
         String note,
 
         @NotNull(message = "Completed task ids are required")
-        Set<Long> completedTaskIds
+        Set<@NotNull(message = "Completed task id is required")
+                @Positive(message = "Completed task id must be greater than zero") Long> completedTaskIds
 ) {
 }
