@@ -2,7 +2,6 @@ package com.example.codeprogress.studysession;
 
 import com.example.codeprogress.learningtask.LearningTask;
 import com.example.codeprogress.topic.Topic;
-import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -16,6 +15,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.BatchSize;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -45,6 +45,7 @@ public class StudySession {
     private String note;
 
     @ManyToMany
+    @BatchSize(size = 100)
     @JoinTable(
             name = "study_session_tasks",
             joinColumns = @JoinColumn(name = "study_session_id"),

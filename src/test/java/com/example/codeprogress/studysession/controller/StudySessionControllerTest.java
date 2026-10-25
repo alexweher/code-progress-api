@@ -11,7 +11,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -21,6 +24,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
+import static org.hamcrest.Matchers.hasItem;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
@@ -34,6 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(StudySessionController.class)
+@AutoConfigureMockMvc(addFilters = false)
 @Import(GlobalExceptionHandler.class)
 class StudySessionControllerTest {
 
@@ -74,12 +79,55 @@ class StudySessionControllerTest {
     }
 
     @Test
+    void rejectsNonPositiveCompletedTaskId() throws Exception {
+        mockMvc.perform(post("/api/topics/1/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sessionDate\":\"2026-10-11\",\"durationMinutes\":60,\"completedTaskIds\":[0]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.fieldErrors[*].message",
+                        hasItem("Completed task id must be greater than zero")));
+    }
+
+    @Test
     void returnsSessionsForTopic() throws Exception {
         when(studySessionService.getAllByTopicId(1L)).thenReturn(List.of(sessionResponse()));
 
         mockMvc.perform(get("/api/topics/1/sessions"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].durationMinutes").value(60));
+    }
+
+    @Test
+    void returnsFilteredSessionPage() throws Exception {
+        when(studySessionService.search(any(), any(), any(), any())).thenReturn(
+                new PageImpl<>(List.of(sessionResponse()), PageRequest.of(0, 10), 1)
+        );
+
+        mockMvc.perform(get("/api/sessions/search")
+                        .param("topicId", "1")
+                        .param("dateFrom", "2026-10-01")
+                        .param("dateTo", "2026-10-31")
+                        .param("size", "10")
+                        .param("sort", "sessionDate,desc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(5))
+                .andExpect(jsonPath("$.totalElements").value(1));
+
+        verify(studySessionService).search(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(LocalDate.of(2026, 10, 1)),
+                org.mockito.ArgumentMatchers.eq(LocalDate.of(2026, 10, 31)),
+                any()
+        );
+    }
+
+    @Test
+    void rejectsInvalidSessionDateFilter() throws Exception {
+        mockMvc.perform(get("/api/sessions/search").param("dateFrom", "not-a-date"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid value for parameter 'dateFrom'"));
     }
 
     @Test
