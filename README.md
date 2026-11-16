@@ -122,7 +122,7 @@ Do not add `-v` unless permanent deletion of the named PostgreSQL volume is inte
 | `POSTGRES_HOST_PORT` | No | `5433` | PostgreSQL port exposed to the host |
 | `DB_URL` | Local JVM only | `jdbc:postgresql://127.0.0.1:5433/codeprogress` | JDBC URL; Compose supplies `postgres:5432` automatically |
 | `DB_USERNAME` | Local JVM only | `codeprogress` | JDBC username |
-| `DB_PASSWORD` | Local JVM only | `codeprogress` | JDBC password |
+| `DB_PASSWORD` | Yes for direct JVM startup | none | JDBC password; Compose maps it from `POSTGRES_PASSWORD` |
 | `BACKEND_HOST_PORT` | No | `8080` | Backend port exposed by Compose |
 | `SERVER_PORT` | No | `8080` | Spring Boot server port |
 | `JWT_SECRET` | Yes | none | HS256 signing secret; must contain at least 32 bytes |
@@ -142,14 +142,15 @@ Start PostgreSQL from Compose:
 docker compose up -d postgres
 ```
 
-Export a development JWT secret and run Spring Boot:
+Export the database password and a development JWT secret, then run Spring Boot:
 
 ```bash
+export DB_PASSWORD='replace-with-the-password-configured-for-local-postgres'
 export JWT_SECRET='replace-with-a-local-random-secret-at-least-32-bytes'
 mvn spring-boot:run
 ```
 
-The default JDBC settings connect to `127.0.0.1:5433`.
+The default JDBC URL and username connect to `127.0.0.1:5433` as `codeprogress`, but there is no password fallback. If `DB_PASSWORD` is missing or blank, Spring Boot stops during early environment validation before creating the data source. Docker Compose remains unchanged: it requires `POSTGRES_PASSWORD` in `.env` and passes that value to the backend as `DB_PASSWORD`.
 
 ## Authentication
 
