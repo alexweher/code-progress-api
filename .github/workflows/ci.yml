@@ -39,3 +39,6 @@ jobs:
 
       - name: Build and verify
         run: mvn --batch-mode --no-transfer-progress clean verify
+
+      - name: Build verification Docker image
+        run: docker build --progress=plain -t codeprogress-backend:ci-verify .
