@@ -1,5 +1,6 @@
 package com.example.codeprogress;
 
+import com.example.codeprogress.analytics.repository.AnalyticsRepository;
 import com.example.codeprogress.dashboard.repository.DashboardRepository;
 import com.example.codeprogress.learningtask.repository.LearningTaskRepository;
 import com.example.codeprogress.studysession.repository.StudySessionRepository;
@@ -17,6 +18,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
         "security.jwt.access-token-ttl=PT1H"
 })
 class CodeProgressApplicationTests {
+
+    @MockitoBean
+    private AnalyticsRepository analyticsRepository;
 
     @MockitoBean
     private DashboardRepository dashboardRepository;
