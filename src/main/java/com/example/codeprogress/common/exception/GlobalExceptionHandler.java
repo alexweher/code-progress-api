@@ -1,5 +1,6 @@
 package com.example.codeprogress.common.exception;
 
+import com.example.codeprogress.analytics.exception.InvalidAnalyticsPeriodException;
 import com.example.codeprogress.common.pagination.InvalidPageRequestException;
 import com.example.codeprogress.dashboard.exception.InvalidDashboardPeriodException;
 import com.example.codeprogress.learningtask.exception.LearningTaskDeletionConflictException;
@@ -124,7 +125,8 @@ public class GlobalExceptionHandler {
         );
     }
 
-    @ExceptionHandler({InvalidPageRequestException.class, InvalidDashboardPeriodException.class})
+    @ExceptionHandler({InvalidPageRequestException.class, InvalidDashboardPeriodException.class,
+            InvalidAnalyticsPeriodException.class})
     public ResponseEntity<ApiErrorResponse> handleInvalidRequestParameter(
             RuntimeException exception,
             HttpServletRequest request

@@ -1,5 +1,6 @@
 package com.example.codeprogress.user.security;
 
+import com.example.codeprogress.analytics.repository.AnalyticsRepository;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.example.codeprogress.dashboard.repository.DashboardRepository;
 import com.example.codeprogress.learningtask.repository.LearningTaskRepository;
@@ -51,6 +52,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc
 class AuthenticationIntegrationTest {
+
+    @MockitoBean
+    private AnalyticsRepository analyticsRepository;
 
     @Autowired
     private MockMvc mockMvc;

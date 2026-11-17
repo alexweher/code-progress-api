@@ -350,6 +350,279 @@ class CodeProgressPostgresIT {
         )).isEqualTo(2);
     }
 
+    @Test
+    void analyticsSummaryUsesInclusiveDatesAndIsolatesOwners() throws Exception {
+        register("analytics-owner@example.com");
+        register("analytics-other@example.com");
+        String ownerToken = login("analytics-owner@example.com");
+        String otherToken = login("analytics-other@example.com");
+        long ownerTopic = createTopic(ownerToken, "Analytics");
+        long taskOne = createTask(ownerToken, ownerTopic, "One", TODAY, "MEDIUM");
+        long taskTwo = createTask(ownerToken, ownerTopic, "Two", TODAY, "MEDIUM");
+        createTask(ownerToken, ownerTopic, "Three", TODAY, "MEDIUM");
+        createSession(ownerToken, ownerTopic, TODAY.minusDays(2), 30, Set.of());
+        createSession(ownerToken, ownerTopic, TODAY, 60, Set.of(taskOne, taskTwo));
+        createSession(ownerToken, ownerTopic, TODAY.plusDays(1), 15, Set.of());
+        long otherTopic = createTopic(otherToken, "Private");
+        createTask(otherToken, otherTopic, "Private task", TODAY, "MEDIUM");
+        createSession(otherToken, otherTopic, TODAY, 120, Set.of());
+
+        mockMvc.perform(get("/api/analytics/summary")
+                        .param("from", TODAY.minusDays(2).toString())
+                        .param("to", TODAY.toString())
+                        .with(bearerToken(ownerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timeZone").value("Europe/Moscow"))
+                .andExpect(jsonPath("$.allTime.studyMinutes").value(105))
+                .andExpect(jsonPath("$.allTime.studySessions").value(3))
+                .andExpect(jsonPath("$.allTime.activeDays").value(3))
+                .andExpect(jsonPath("$.allTime.lastStudyDate").value(TODAY.plusDays(1).toString()))
+                .andExpect(jsonPath("$.period.studyMinutes").value(90))
+                .andExpect(jsonPath("$.period.studySessions").value(2))
+                .andExpect(jsonPath("$.period.activeDays").value(2))
+                .andExpect(jsonPath("$.tasksSnapshot.total").value(3))
+                .andExpect(jsonPath("$.tasksSnapshot.completed").value(2))
+                .andExpect(jsonPath("$.tasksSnapshot.completionPercent").value(67));
+
+        mockMvc.perform(get("/api/analytics/summary")
+                        .param("from", TODAY.toString()).param("to", TODAY.toString())
+                        .with(bearerToken(otherToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allTime.studyMinutes").value(120))
+                .andExpect(jsonPath("$.tasksSnapshot.total").value(1));
+
+        mockMvc.perform(get("/api/analytics/summary")
+                        .param("from", TODAY.toString()).param("to", TODAY.toString()))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/dashboard/summary").with(bearerToken(ownerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.completedTasks").value(2));
+    }
+
+    @Test
+    void analyticsSummaryReturnsZerosWithoutData() throws Exception {
+        register("empty-analytics@example.com");
+        String token = login("empty-analytics@example.com");
+        mockMvc.perform(get("/api/analytics/summary")
+                        .param("from", TODAY.toString()).param("to", TODAY.toString())
+                        .with(bearerToken(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allTime.studyMinutes").value(0))
+                .andExpect(jsonPath("$.allTime.activeDays").value(0))
+                .andExpect(jsonPath("$.allTime.lastStudyDate").value((Object) null))
+                .andExpect(jsonPath("$.period.studyMinutes").value(0))
+                .andExpect(jsonPath("$.tasksSnapshot.total").value(0))
+                .andExpect(jsonPath("$.tasksSnapshot.completionPercent").value(0));
+    }
+
+    @Test
+    void analyticsActivityAggregatesDaysOnceAndIsolatesUsers() throws Exception {
+        register("activity-owner@example.com");
+        register("activity-other@example.com");
+        String ownerToken = login("activity-owner@example.com");
+        String otherToken = login("activity-other@example.com");
+        LocalDate start = TODAY.minusDays(2);
+        long topic = createTopic(ownerToken, "Daily activity");
+        long first = createTask(ownerToken, topic, "First", TODAY, "MEDIUM");
+        long second = createTask(ownerToken, topic, "Second", TODAY, "MEDIUM");
+        createSession(ownerToken, topic, start, 40, Set.of(first, second));
+        createSession(ownerToken, topic, start, 20, Set.of());
+        createSession(ownerToken, topic, TODAY, 15, Set.of());
+        long otherTopic = createTopic(otherToken, "Other activity");
+        createSession(otherToken, otherTopic, start.plusDays(1), 90, Set.of());
+
+        mockMvc.perform(get("/api/analytics/activity")
+                        .param("from", start.toString()).param("to", TODAY.toString())
+                        .with(bearerToken(ownerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groupBy").value("DAY"))
+                .andExpect(jsonPath("$.timeZone").value("Europe/Moscow"))
+                .andExpect(jsonPath("$.buckets.length()").value(3))
+                .andExpect(jsonPath("$.buckets[0].start").value(start.toString()))
+                .andExpect(jsonPath("$.buckets[0].end").value(start.toString()))
+                .andExpect(jsonPath("$.buckets[0].studyMinutes").value(60))
+                .andExpect(jsonPath("$.buckets[0].studySessions").value(2))
+                .andExpect(jsonPath("$.buckets[1].studyMinutes").value(0))
+                .andExpect(jsonPath("$.buckets[1].studySessions").value(0))
+                .andExpect(jsonPath("$.buckets[2].studyMinutes").value(15));
+
+        mockMvc.perform(get("/api/analytics/activity")
+                        .param("from", start.toString()).param("to", TODAY.toString())
+                        .param("groupBy", "DAY").with(bearerToken(otherToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.buckets[0].studyMinutes").value(0))
+                .andExpect(jsonPath("$.buckets[1].studyMinutes").value(90));
+
+        mockMvc.perform(get("/api/dashboard/activity")
+                        .param("from", start.toString()).param("to", TODAY.toString())
+                        .with(bearerToken(ownerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].studyMinutes").value(60));
+        mockMvc.perform(get("/api/analytics/summary")
+                        .param("from", start.toString()).param("to", TODAY.toString())
+                        .with(bearerToken(ownerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period.studyMinutes").value(75));
+        mockMvc.perform(get("/api/analytics/activity")
+                        .param("from", start.toString()).param("to", TODAY.toString()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void analyticsActivityUsesIsoWeeksAcrossYearAndIncludesEmptyWeeks() throws Exception {
+        register("weekly@example.com");
+        register("weekly-other@example.com");
+        String token = login("weekly@example.com");
+        String otherToken = login("weekly-other@example.com");
+        long topic = createTopic(token, "Weekly activity");
+        long otherTopic = createTopic(otherToken, "Other weekly activity");
+        LocalDate from = LocalDate.of(2026, 12, 30);
+        LocalDate to = LocalDate.of(2027, 1, 12);
+        createSession(token, topic, from, 30, Set.of());
+        createSession(token, topic, LocalDate.of(2027, 1, 3), 20, Set.of());
+        createSession(token, topic, to, 40, Set.of());
+        createSession(otherToken, otherTopic, LocalDate.of(2027, 1, 7), 120, Set.of());
+
+        mockMvc.perform(get("/api/analytics/activity")
+                        .param("from", from.toString()).param("to", to.toString())
+                        .param("groupBy", "WEEK").with(bearerToken(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.buckets.length()").value(3))
+                .andExpect(jsonPath("$.buckets[0].start").value("2026-12-30"))
+                .andExpect(jsonPath("$.buckets[0].end").value("2027-01-03"))
+                .andExpect(jsonPath("$.buckets[0].studyMinutes").value(50))
+                .andExpect(jsonPath("$.buckets[0].studySessions").value(2))
+                .andExpect(jsonPath("$.buckets[1].start").value("2027-01-04"))
+                .andExpect(jsonPath("$.buckets[1].end").value("2027-01-10"))
+                .andExpect(jsonPath("$.buckets[1].studyMinutes").value(0))
+                .andExpect(jsonPath("$.buckets[2].start").value("2027-01-11"))
+                .andExpect(jsonPath("$.buckets[2].end").value("2027-01-12"))
+                .andExpect(jsonPath("$.buckets[2].studyMinutes").value(40));
+
+        mockMvc.perform(get("/api/analytics/activity")
+                        .param("from", to.plusDays(1).toString())
+                        .param("to", to.plusDays(1).toString())
+                        .param("groupBy", "WEEK").with(bearerToken(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.buckets[0].studyMinutes").value(0));
+        mockMvc.perform(get("/api/analytics/activity")
+                        .param("from", from.toString()).param("to", from.plusDays(366).toString())
+                        .with(bearerToken(token)))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/analytics/activity")
+                        .param("from", to.toString()).param("to", from.toString())
+                        .with(bearerToken(token)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void analyticsTopicsKeepsEmptyTopicsAndSeparateOwnerAggregates() throws Exception {
+        register("topics-analytics@example.com");
+        register("topics-outsider@example.com");
+        String token = login("topics-analytics@example.com");
+        String outsider = login("topics-outsider@example.com");
+        LocalDate from = TODAY.minusDays(2);
+        long javaOne = createTopic(token, "Java");
+        long javaTwo = createTopic(token, "Java");
+        long empty = createTopic(token, "Empty");
+        long noTasks = createTopic(token, "No tasks");
+        long first = createTask(token, javaOne, "First", TODAY, "MEDIUM");
+        long second = createTask(token, javaOne, "Second", TODAY, "MEDIUM");
+        createTask(token, javaOne, "Third", TODAY, "MEDIUM");
+        long fourth = createTask(token, javaTwo, "Fourth", TODAY, "MEDIUM");
+        long fifth = createTask(token, javaTwo, "Fifth", TODAY, "MEDIUM");
+        createTask(token, javaTwo, "Sixth", TODAY, "MEDIUM");
+        updateTaskStatus(token, fourth, "COMPLETED");
+        updateTaskStatus(token, fifth, "COMPLETED");
+        createSession(token, javaOne, from, 30, Set.of(first, second));
+        createSession(token, javaOne, from.plusDays(1), 20, Set.of(first));
+        createSession(token, javaOne, TODAY, 40, Set.of(first));
+        createSession(token, javaOne, TODAY.plusDays(1), 100, Set.of());
+        createSession(token, noTasks, TODAY, 15, Set.of());
+        long otherTopic = createTopic(outsider, "A foreign topic");
+        createTask(outsider, otherTopic, "Foreign task", TODAY, "MEDIUM");
+        createSession(outsider, otherTopic, TODAY, 999, Set.of());
+
+        mockMvc.perform(get("/api/analytics/topics")
+                        .param("from", from.toString()).param("to", TODAY.toString())
+                        .with(bearerToken(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timeZone").value("Europe/Moscow"))
+                .andExpect(jsonPath("$.topics.length()").value(4))
+                .andExpect(jsonPath("$.topics[0].topicId").value(empty))
+                .andExpect(jsonPath("$.topics[0].tasks.total").value(0))
+                .andExpect(jsonPath("$.topics[0].tasks.completionPercent").value(0))
+                .andExpect(jsonPath("$.topics[0].periodStudy.studyMinutes").value(0))
+                .andExpect(jsonPath("$.topics[0].periodStudy.lastStudyDate").value((Object) null))
+                .andExpect(jsonPath("$.topics[1].topicId").value(javaOne))
+                .andExpect(jsonPath("$.topics[1].tasks.total").value(3))
+                .andExpect(jsonPath("$.topics[1].tasks.completed").value(2))
+                .andExpect(jsonPath("$.topics[1].tasks.completionPercent").value(67))
+                .andExpect(jsonPath("$.topics[1].periodStudy.studyMinutes").value(90))
+                .andExpect(jsonPath("$.topics[1].periodStudy.studySessions").value(3))
+                .andExpect(jsonPath("$.topics[1].periodStudy.activeDays").value(3))
+                .andExpect(jsonPath("$.topics[1].periodStudy.lastStudyDate").value(TODAY.toString()))
+                .andExpect(jsonPath("$.topics[2].topicId").value(javaTwo))
+                .andExpect(jsonPath("$.topics[2].tasks.completionPercent").value(67))
+                .andExpect(jsonPath("$.topics[2].periodStudy.studyMinutes").value(0))
+                .andExpect(jsonPath("$.topics[3].topicId").value(noTasks))
+                .andExpect(jsonPath("$.topics[3].periodStudy.studyMinutes").value(15));
+
+        mockMvc.perform(get("/api/analytics/topics")
+                        .param("from", TODAY.plusDays(10).toString())
+                        .param("to", TODAY.plusDays(10).toString())
+                        .with(bearerToken(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.topics[1].tasks.completed").value(2))
+                .andExpect(jsonPath("$.topics[1].periodStudy.studyMinutes").value(0));
+
+        mockMvc.perform(get("/api/analytics/topics")
+                        .param("from", from.toString()).param("to", TODAY.toString())
+                        .with(bearerToken(outsider)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.topics.length()").value(1))
+                .andExpect(jsonPath("$.topics[0].periodStudy.studyMinutes").value(999));
+        mockMvc.perform(get("/api/analytics/topics")
+                        .param("from", from.toString()).param("to", TODAY.toString()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/analytics/topics")
+                        .param("from", TODAY.toString()).param("to", from.toString())
+                        .with(bearerToken(token)))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/analytics/topics")
+                        .param("from", from.toString()).param("to", from.plusDays(366).toString())
+                        .with(bearerToken(token)))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/topics/{topicId}/progress", javaOne).with(bearerToken(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.completedTasks").value(2));
+        mockMvc.perform(get("/api/dashboard/summary").with(bearerToken(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.completedTasks").value(4));
+        mockMvc.perform(get("/api/analytics/activity")
+                        .param("from", from.toString()).param("to", TODAY.toString())
+                        .with(bearerToken(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.buckets[2].studyMinutes").value(55));
+        mockMvc.perform(get("/api/analytics/summary")
+                        .param("from", from.toString()).param("to", TODAY.toString())
+                        .with(bearerToken(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period.studyMinutes").value(105));
+    }
+
+    @Test
+    void analyticsTopicsReturnsEmptyListWithoutTopics() throws Exception {
+        register("no-topics@example.com");
+        String token = login("no-topics@example.com");
+        mockMvc.perform(get("/api/analytics/topics")
+                        .param("from", TODAY.toString()).param("to", TODAY.toString())
+                        .with(bearerToken(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.topics.length()").value(0));
+    }
+
     private void register(String email) throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
